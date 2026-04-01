@@ -1,0 +1,269 @@
+# @ramiidv/arca-empleados-sdk
+
+TypeScript SDK for generating ARCA (ex AFIP) F935 bulk employee management files.
+This SDK generates structured data files for "Mi Simplificacion - Ingreso Masivo de Datos".
+It does NOT make API/SOAP calls - it is a pure file generator with strong typing and validation.
+
+## Installation
+
+npm install @ramiidv/arca-empleados-sdk
+
+## Main Class: ArcaEmpleados
+
+```ts
+import { ArcaEmpleados } from '@ramiidv/arca-empleados-sdk';
+
+const empleados = new ArcaEmpleados({
+  cuitEmpleador: '30-71234567-1',  // required, CUIT of employer
+  razonSocial: 'Mi Empresa S.A.',  // optional
+  strict: true,                     // optional, default true - validate on add
+});
+```
+
+### Methods (all return `this` for chaining, except `generar`/`resumen`):
+
+- `alta(data: AltaEmpleado): this` - Add employee registration
+- `baja(data: BajaEmpleado): this` - Add employee termination
+- `modificacion(data: ModificacionEmpleado): this` - Add employee modification
+- `datosComplementarios(data: DatosComplementarios): this` - Add supplementary data
+- `cbu(data: DatosCBU): this` - Add banking data
+- `relacionFamiliar(data: RelacionFamiliar): this` - Add family relationship
+- `domicilioExplotacion(data: DomicilioExplotacion & { cuil: string }): this` - Add work address
+- `altasMasivas(data: AltaEmpleado[]): this` - Bulk registrations
+- `bajasMasivas(data: BajaEmpleado[]): this` - Bulk terminations
+- `generar(): F935Output` - Generate file content + metadata
+- `resumen(): F935Resumen` - Get record summary
+- `limpiar(): this` - Clear all records
+- `registros: F935Registro[]` - Read-only stored records
+
+## Key Types
+
+### AltaEmpleado (7 mandatory fields per RG 5508/2024)
+```ts
+{
+  cuil: string,                          // Worker CUIL
+  fechaInicio: Date,                     // Start date
+  modalidadContratacion: number,         // Contract type (ModalidadContratacion enum)
+  obraSocial: string,                    // Health insurance code
+  actividadEconomica: string,            // Economic activity code
+  domicilioExplotacion: DomicilioExplotacion, // Work address
+  trabajadorAgropecuario?: boolean,      // Agricultural worker (default false)
+  fechaFin?: Date,                       // Required for fixed-term contracts
+}
+```
+
+### BajaEmpleado
+```ts
+{ cuil: string, fechaBaja: Date, motivoBaja: number }
+```
+
+### ModificacionEmpleado
+```ts
+{ cuil: string, fechaInicio: Date, ...optional fields to modify }
+```
+
+### DatosComplementarios
+```ts
+{
+  cuil: string, fechaInicio: Date, situacionRevista: number,
+  nivelEducacion?: number, puestoDesempenado?: string,
+  convenioColectivo?: string, tipoServicio?: number,
+  modalidadLiquidacion?: number, estadoCivil?: number,
+  remuneracion?: number, cantidadHorasTrabajadas?: number,
+  porcentajeAporteAdicionalSS?: number,
+  contribucionTareasDiferenciales?: number,
+  codigoSiniestrado?: number, marcaPreaviso?: boolean,
+  fechaPreaviso?: Date, conceptoLiquidacion?: number,
+}
+```
+
+### DatosCBU
+```ts
+{ cuil: string, fechaInicio: Date, cbu: string, tipoCuenta?: number }
+```
+
+### RelacionFamiliar
+```ts
+{
+  cuil: string, fechaInicio: Date, tipoRelacion: number,
+  cuilFamiliar?: string, dniFamiliar?: string,
+  nombreFamiliar: string, apellidoFamiliar: string,
+  fechaNacimiento: Date, discapacitado?: boolean,
+  escolaridad?: number, obraSocialFamiliar?: string,
+  cuilTitularObraSocial?: string,
+}
+```
+
+### DomicilioExplotacion
+```ts
+{
+  calle: string, numero: string, piso?: string, depto?: string,
+  localidad: string, codigoPostal: string, provincia: number,
+  telefono?: string, actividadEconomica?: string,
+}
+```
+
+### F935Output
+```ts
+{ contenido: string, archivo: F935Archivo, resumen: F935Resumen }
+```
+
+### F935Resumen
+```ts
+{
+  totalRegistros: number, altas: number, bajas: number,
+  modificaciones: number, datosComplementarios: number,
+  cbus: number, familiares: number, domicilios: number,
+}
+```
+
+## Enums
+
+### ModalidadContratacion (35 codes, T03 SICOSS)
+0=PROMOVIDA_REDUCCION_0, 1=TIEMPO_PARCIAL_INDETERMINADO,
+2=BECARIOS_RESIDENCIAS, 3=APRENDIZAJE, 4=FOMENTO_EMPLEO_24465,
+5=FOMENTO_EMPLEO_24013, 6=LANZAMIENTO_NUEVA_ACTIVIDAD,
+7=PERIODO_PRUEBA_ANTIGUO, 8=TIEMPO_COMPLETO_INDETERMINADO,
+9=PRACTICA_LABORAL_JOVENES, 10=PASANTIA_SIN_OS, 11=TEMPORADA,
+12=EVENTUAL, 13=TRABAJO_FORMACION, 14=PERIODO_PRUEBA_NUEVO,
+18=DISCAPACITADO_24147, 21=TIEMPO_PARCIAL_PLAZO_FIJO,
+22=TIEMPO_COMPLETO_PLAZO_FIJO, 23=NO_PERMANENTE_22248,
+24=CONSTRUCCION, 25=EMPLEO_PUBLICO_PROVINCIAL, 26=PROGRAMA_EMPLEO,
+27=PASANTIA_CON_OS, 32=PERIODO_PRUEBA, 46=PLANTA_TRANSITORIA,
+49=DIRECTORES_SA, 50=PROMOVIDA_REDUCCION_50, 99=LRT,
+100=PROMOVIDA_REDUCCION_100, 110=AGRARIO_PERMANENTE,
+111=AGRARIO_TEMPORARIO, 112=AGRARIO_PERMANENTE_DISCONTINUO,
+113=AGRARIO_CUADRILLA_FAMILIAR, 301=LEY_26940_INDETERMINADO,
+304=LEY_26940_PARCIAL
+
+### MotivoBaja (34 codes)
+0=FALLECIMIENTO, 2=OTRAS_CAUSALES, 7=DESPIDO,
+18=TRANSFERENCIA_CONTRATO, 19=DENUNCIA_TRANSFERENCIA,
+20=CESION_PERSONAL, 21=RENUNCIA, 22=MUTUO_ACUERDO,
+23=DENUNCIA_POR_EMPLEADOR, 24=DENUNCIA_POR_TRABAJADOR,
+25=ABANDONO_TRABAJO, 26=DESPIDO_SIN_CAUSA, 27=FALTA_TRABAJO,
+28=FUERZA_MAYOR, 29=FALLECIMIENTO_EMPLEADOR, 30=VENCIMIENTO_PLAZO,
+31=QUIEBRA, 32=CONCURSO, 33=JUBILACION, 34=INCAPACIDAD,
+35=MUTUO_ACUERDO_AGRARIO, 36=DESPIDO_AGRARIO,
+37=FUERZA_MAYOR_AGRARIO, 38=FIN_APRENDIZAJE_PASANTIA,
+39=DESPIDO_CONSTRUCCION, 40=CESANTIA, 41=EXONERACION,
+46=INICIO_RETIRO_VOLUNTARIO, 47=FIN_RETIRO_VOLUNTARIO,
+52=EXTINCION_MUTUO_ACUERDO, 53=BAJA_OFICIO,
+54=RETIRO_VOLUNTARIO, 55=TRASPASO_RIGI, 99=VENCIMIENTO_PLAZO_FIJO
+
+### SituacionRevista (23 codes)
+1=ACTIVO, 5=LICENCIA_MATERNIDAD, 6=SUSPENSION_OTRAS_CAUSALES,
+9=SUSPENSION_223_BIS, 10=LICENCIA_EXCEDENCIA,
+11=LICENCIA_MATERNIDAD_DOWN, 12=LICENCIA_VACACIONES,
+13=LICENCIA_SIN_GOCE, 14=RESERVA_PUESTO,
+15=CESE_TRANSITORIO_ESE, 16=SINIESTRADO_TERCEROS,
+17=REINGRESO_JUDICIAL, 21=TEMPORADA_RESERVA_PUESTO,
+31=ACTIVO_EXTERIOR, 32=LICENCIA_PATERNIDAD,
+33=LICENCIA_FUERZA_MAYOR, 42=EVENTUAL_EU_MES_COMPLETO,
+43=EVENTUAL_EU_MES_INCOMPLETO, 44=CONSERVACION_EMPLEO,
+45=SUSPENSION_DISCIPLINARIA, 48=SUSPENSION_RES_397,
+49=SUSPENSION_PARCIAL_223_BIS, 51=LICENCIA_CANCER_INFANTIL
+
+### NivelEducacion
+0=SIN_INSTRUCCION, 1=PRIMARIO_INCOMPLETO, 2=PRIMARIO_COMPLETO,
+3=SECUNDARIO_INCOMPLETO, 4=SECUNDARIO_COMPLETO, 5=TERCIARIO_INCOMPLETO,
+6=TERCIARIO_COMPLETO, 7=UNIVERSITARIO_INCOMPLETO, 8=UNIVERSITARIO_COMPLETO,
+9=POSGRADO_INCOMPLETO, 10=POSGRADO_COMPLETO
+
+### EstadoCivil
+1=SOLTERO, 2=CASADO, 3=DIVORCIADO, 4=VIUDO, 5=SEPARADO, 6=UNION_CONVIVENCIAL
+
+### TipoRelacionFamiliar
+1=CONYUGE, 2=HIJO, 3=HIJO_DISCAPACITADO, 4=HIJASTRO,
+5=MENOR_GUARDA, 6=PRENATAL, 7=CONVIVIENTE
+
+### Provincia (24 codes)
+0=CAPITAL_FEDERAL, 1=BUENOS_AIRES, 2=CATAMARCA, 3=CORDOBA,
+4=CORRIENTES, 5=ENTRE_RIOS, 6=JUJUY, 7=MENDOZA, 8=LA_RIOJA,
+9=SALTA, 10=SAN_JUAN, 11=SAN_LUIS, 12=SANTA_FE,
+13=SANTIAGO_DEL_ESTERO, 14=TUCUMAN, 15=CHACO, 16=CHUBUT,
+17=FORMOSA, 18=MISIONES, 19=NEUQUEN, 20=LA_PAMPA,
+21=RIO_NEGRO, 22=SANTA_CRUZ, 23=TIERRA_DEL_FUEGO
+
+### TipoServicio
+1=CON_APORTE_PAMI, 2=SIN_APORTE_PAMI
+
+### ModalidadLiquidacion
+1=MENSUAL, 2=QUINCENAL, 3=SEMANAL, 4=DIARIA, 5=POR_HORA,
+6=POR_PIEZA, 7=A_COMISION, 8=JORNAL
+
+### TipoCuenta
+1=CAJA_AHORRO, 2=CUENTA_CORRIENTE
+
+### Escolaridad
+0=NO_ESCOLAR, 1=PREESCOLAR, 2=PRIMARIA, 3=SECUNDARIA,
+4=TERCIARIA, 5=UNIVERSITARIA
+
+### TipoOperacion
+0=ALTA, 1=BAJA, 2=MODIFICACION
+
+## Description Maps
+
+Each enum has a corresponding description map:
+MODALIDAD_CONTRATACION_DESCRIPCION, MOTIVO_BAJA_DESCRIPCION,
+SITUACION_REVISTA_DESCRIPCION, NIVEL_EDUCACION_DESCRIPCION,
+ESTADO_CIVIL_DESCRIPCION, TIPO_RELACION_FAMILIAR_DESCRIPCION,
+PROVINCIA_DESCRIPCION, MODALIDAD_LIQUIDACION_DESCRIPCION,
+TIPO_CUENTA_DESCRIPCION, ESCOLARIDAD_DESCRIPCION, TIPO_SERVICIO_DESCRIPCION
+
+## Validation Rules
+
+- CUIL: 11 digits, valid prefixes (20/23/24/27/30/33/34), mod-11 checksum
+- CBU: 22 digits, block 1 (8 digits) and block 2 (14 digits) checksums
+- Dates: must be valid Date objects
+- fechaFin > fechaInicio when both provided
+- fechaFin required for modalidades: TIEMPO_PARCIAL_PLAZO_FIJO, TIEMPO_COMPLETO_PLAZO_FIJO, EVENTUAL, TEMPORADA, APRENDIZAJE, PASANTIA_SIN_OS, PASANTIA_CON_OS, AGRARIO_TEMPORARIO, NO_PERMANENTE_22248
+- Provincia: 0-23
+- Domicilio: calle, numero, localidad, codigoPostal required
+
+## Utility Functions
+
+- `validateCuil(cuil: string): string` - Validate & normalize CUIL
+- `validateCBU(cbu: string): string` - Validate CBU
+- `normalizeCuil(cuil: string): string` - Remove hyphens
+- `formatCuil(cuil: string): string` - Add hyphens (XX-XXXXXXXX-X)
+
+## Error Types
+
+- `ArcaEmpleadosError` - Base error (catch-all)
+- `ArcaValidationError` - Validation failures (has `.field?: string`, `.errors: ValidationErrorDetail[]`)
+- `ArcaSerializationError` - File generation failures
+
+ValidationErrorDetail: `{ field: string, message: string, value?: unknown }`
+
+## File Format
+
+Pipe-delimited text. Line types:
+- 00: Header (CUIT|RAZON_SOCIAL|FECHA|COUNT)
+- 01: Relacion laboral (op 0=alta, 1=baja, 2=modificacion)
+- 02: Datos complementarios
+- 03: CBU
+- 04: Relacion familiar
+- 05: Domicilio de explotacion
+
+Dates: DDMMYYYY. Booleans: S/N.
+
+## Common Patterns
+
+```ts
+// Alta + complementarios + CBU (typical onboarding)
+const resultado = empleados
+  .alta({ cuil: '...', fechaInicio: new Date(), ... })
+  .datosComplementarios({ cuil: '...', fechaInicio: new Date(), ... })
+  .cbu({ cuil: '...', fechaInicio: new Date(), cbu: '...' })
+  .generar();
+
+// Bulk terminations
+empleados.bajasMasivas([
+  { cuil: '...', fechaBaja: new Date(), motivoBaja: MotivoBaja.RENUNCIA },
+  { cuil: '...', fechaBaja: new Date(), motivoBaja: MotivoBaja.DESPIDO_SIN_CAUSA },
+]);
+
+// Non-strict mode (skip validation on add)
+const empleados = new ArcaEmpleados({ cuitEmpleador: '...', strict: false });
+```
