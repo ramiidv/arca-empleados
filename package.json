@@ -47,6 +47,9 @@
   "bugs": {
     "url": "https://github.com/ramiidv/arca-empleados-sdk/issues"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=18"
   },
