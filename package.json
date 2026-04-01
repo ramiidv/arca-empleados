@@ -43,7 +43,7 @@
     "type": "git",
     "url": "git+https://github.com/ramiidv/arca-empleados-sdk.git"
   },
-  "homepage": "https://github.com/ramiidv/arca-empleados-sdk#readme",
+  "homepage": "https://arca-sdk.dev/empleados",
   "bugs": {
     "url": "https://github.com/ramiidv/arca-empleados-sdk/issues"
   },
