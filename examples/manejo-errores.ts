@@ -48,7 +48,7 @@ try {
 console.log('\n--- Validacion de CBU ---');
 
 try {
-  const cbu = validateCBU('0110599930000054489274');
+  const cbu = validateCBU('0110599530000054489272');
   console.log(`CBU valido: ${cbu}`);
 } catch (error) {
   if (error instanceof ArcaValidationError) {

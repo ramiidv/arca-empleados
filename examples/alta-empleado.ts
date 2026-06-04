@@ -60,7 +60,7 @@ sdk.datosComplementarios({
 sdk.cbu({
   cuil: '20-12345678-6',
   fechaInicio: new Date(2024, 2, 1),
-  cbu: '0110599100000054489273',
+  cbu: '0110599500000054489271',
   tipoCuenta: TipoCuenta.CAJA_AHORRO,
 });
 

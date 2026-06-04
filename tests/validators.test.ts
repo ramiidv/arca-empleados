@@ -90,7 +90,8 @@ describe('validateCuil', () => {
     try {
       validateCuil('15123456789');
     } catch (e) {
-      expect((e as ArcaValidationError).details[0].field).toBe('cuil');
+      // arca-common etiqueta el campo como 'cuit' (CUIL y CUIT comparten algoritmo)
+      expect((e as ArcaValidationError).details[0].field).toBe('cuit');
     }
   });
 
@@ -111,20 +112,20 @@ describe('validateCuil', () => {
 // ---------------------------------------------------------------------------
 
 describe('validateCBU', () => {
-  // Computed valid CBU:
-  // Block1: banco=014, sucursal=006, dc
-  //   digits: 0,1,4,0,0,6 -> weights: 7,1,3,7,1,3
-  //   sum = 0+1+12+0+0+18 = 31
+  // CBU válido calculado con los ponderadores oficiales BCRA:
+  // Block1: banco=014, sucursal=0006, dc
+  //   digits: 0,1,4,0,0,0,6 -> weights: 7,1,3,9,7,1,3
+  //   sum = 0+1+12+0+0+0+18 = 31
   //   check = (10 - 31%10)%10 = (10-1)%10 = 9
   //   block1 = 01400069
   // Block2: 0000000123456, dc
-  //   digits: 0,0,0,0,0,0,0,1,2,3,4,5,6 -> weights: 3,7,1,3,7,1,3,7,1,3,7,1,3
-  //   sum = 0+0+0+0+0+0+0+7+2+9+28+5+18 = 69
-  //   check = (10-69%10)%10 = (10-9)%10 = 1
-  //   block2 = 00000001234561
-  // Full CBU = 0140006900000001234561
+  //   digits: 0,0,0,0,0,0,0,1,2,3,4,5,6 -> weights: 3,9,7,1,3,9,7,1,3,9,7,1,3
+  //   sum = 0+0+0+0+0+0+0+1+6+27+28+5+18 = 85
+  //   check = (10-85%10)%10 = (10-5)%10 = 5
+  //   block2 = 00000001234565
+  // Full CBU = 0140006900000001234565
 
-  const VALID_CBU = '0140006900000001234561';
+  const VALID_CBU = '0140006900000001234565';
 
   it('passes for a valid CBU', () => {
     expect(validateCBU(VALID_CBU)).toBe(VALID_CBU);
