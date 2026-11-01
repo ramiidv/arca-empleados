@@ -1,358 +1,367 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  formatDate,
-  boolToStr,
-  serializeAlta,
-  serializeBaja,
-  serializeHeader,
-  serializeModificacion,
-  serializeDatosComplementarios,
-  serializeCBU,
-  serializeRelacionFamiliar,
-  serializeDomicilio,
-} from '../src/serializer.js';
-import type { AltaEmpleado, BajaEmpleado, F935Archivo, DomicilioExplotacion } from '../src/types.js';
+  ArcaEmpleadosError,
+  ArcaError,
+  ArcaSerializationError,
+  ArcaValidationError,
+  DISENO_REGISTRO,
+  LONGITUD_REGISTRO,
+  codificarArchivo,
+  formatFechaSR,
+  serializarArchivo,
+  serializarRegistro,
+} from '../src/index.js';
+import type { RegistroRelacionLaboral } from '../src/index.js';
 
-// ---------------------------------------------------------------------------
-// formatDate
-// ---------------------------------------------------------------------------
+const CUIL = '20-12345678-6';
 
-describe('formatDate', () => {
-  it('formats a date as DDMMYYYY', () => {
-    const date = new Date(2024, 0, 15); // January 15, 2024
-    expect(formatDate(date)).toBe('15012024');
+/** Devuelve el contenido de un campo según el diseño de registro (posiciones 1-based). */
+function campo(linea: string, nombre: string): string {
+  const c = DISENO_REGISTRO.find((d) => d.campo === nombre);
+  if (!c) throw new Error(`campo ${nombre} no existe`);
+  return linea.slice(c.desde - 1, c.hasta);
+}
+
+const ALTA: RegistroRelacionLaboral = {
+  movimiento: 'AT',
+  cuil: CUIL,
+  trabajadorAgropecuario: 'S',
+  modalidadContrato: 8,
+  fechaInicio: '2026-11-02',
+  obraSocial: '126205',
+  situacionRevista: 1,
+  retribucion: 1500,
+  modalidadLiquidacion: 3,
+  sucursal: 1,
+  actividad: 620100,
+  puesto: '2512',
+  cct: '130/75',
+  categoriaProfesional: 123,
+};
+
+describe('diseño de registro', () => {
+  it('cubre las posiciones 1 a 130 sin huecos ni solapamientos (manual pág. 24)', () => {
+    let pos = 1;
+    for (const c of DISENO_REGISTRO) {
+      expect(c.desde).toBe(pos);
+      expect(c.longitud).toBe(c.hasta - c.desde + 1);
+      pos = c.hasta + 1;
+    }
+    expect(pos - 1).toBe(LONGITUD_REGISTRO);
+    expect(DISENO_REGISTRO).toHaveLength(22);
   });
 
-  it('pads single-digit day and month', () => {
-    const date = new Date(2024, 2, 5); // March 5, 2024
-    expect(formatDate(date)).toBe('05032024');
-  });
-
-  it('handles December 31', () => {
-    const date = new Date(2024, 11, 31); // December 31, 2024
-    expect(formatDate(date)).toBe('31122024');
-  });
-
-  it('handles January 1', () => {
-    const date = new Date(2025, 0, 1); // January 1, 2025
-    expect(formatDate(date)).toBe('01012025');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// boolToStr
-// ---------------------------------------------------------------------------
-
-describe('boolToStr', () => {
-  it('converts true to "S"', () => {
-    expect(boolToStr(true)).toBe('S');
-  });
-
-  it('converts false to "N"', () => {
-    expect(boolToStr(false)).toBe('N');
-  });
-
-  it('converts undefined to "N"', () => {
-    expect(boolToStr(undefined)).toBe('N');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// serializeHeader
-// ---------------------------------------------------------------------------
-
-describe('serializeHeader', () => {
-  it('produces correct pipe-delimited header', () => {
-    const archivo: F935Archivo = {
-      cuitEmpleador: '30-71234567-1',
-      razonSocial: 'Empresa SA',
-      fechaGeneracion: new Date(2024, 5, 15), // June 15, 2024
-      registros: [],
-      cantidadRegistros: 3,
-    };
-
-    const header = serializeHeader(archivo);
-    const parts = header.split('|');
-
-    expect(parts[0]).toBe('00');
-    expect(parts[1]).toBe('30712345671'); // normalized CUIT
-    expect(parts[2]).toBe('Empresa SA');
-    expect(parts[3]).toBe('15062024');
-    expect(parts[4]).toBe('3');
-    // Ends with trailing pipe
-    expect(header.endsWith('|')).toBe(true);
-  });
-
-  it('handles empty razonSocial', () => {
-    const archivo: F935Archivo = {
-      cuitEmpleador: '30712345671',
-      fechaGeneracion: new Date(2024, 0, 1),
-      registros: [],
-      cantidadRegistros: 0,
-    };
-
-    const header = serializeHeader(archivo);
-    const parts = header.split('|');
-
-    expect(parts[2]).toBe(''); // empty razon social
+  it('tiene las posiciones y tipos del manual', () => {
+    const tabla = DISENO_REGISTRO.map((c) => `${c.campo}:${c.desde}-${c.hasta}:${c.tipo}`);
+    expect(tabla).toEqual([
+      'tipoRegistro:1-2:N',
+      'movimiento:3-4:A',
+      'cuil:5-15:N',
+      'trabajadorAgropecuario:16-16:A',
+      'modalidadContrato:17-19:N',
+      'fechaInicio:20-29:F',
+      'fechaFin:30-39:F',
+      'obraSocial:40-45:N',
+      'situacionRevista:46-47:N',
+      'fechaTelegramaRenuncia:48-57:F',
+      'retribucion:58-72:N',
+      'modalidadLiquidacion:73-73:N',
+      'sucursal:74-78:N',
+      'actividad:79-84:N',
+      'puesto:85-88:A',
+      'rectificacion:89-90:N',
+      'cct:91-100:A',
+      'categoriaProfesional:101-106:N',
+      'tipoServicio:107-109:N',
+      'fechaSuspensionServiciosTemporarios:110-119:F',
+      'numeroFormularioAgropecuario:120-129:N',
+      'marcaCovidTipoContratoCCG:130-130:N',
+    ]);
   });
 });
 
-// ---------------------------------------------------------------------------
-// serializeAlta
-// ---------------------------------------------------------------------------
-
-describe('serializeAlta', () => {
-  it('produces correct pipe-delimited alta output', () => {
-    const alta: AltaEmpleado = {
-      cuil: '20-12345678-6',
-      fechaInicio: new Date(2024, 0, 15),
-      modalidadContratacion: 8,
-      obraSocial: '100000',
-      domicilioExplotacion: {
-        calle: 'Av. Corrientes',
-        numero: '1234',
-        piso: '3',
-        depto: 'A',
-        localidad: 'CABA',
-        codigoPostal: '1043',
-        provincia: 0,
-        telefono: '1155551234',
-      },
-      actividadEconomica: '620100',
-      trabajadorAgropecuario: false,
-    };
-
-    const line = serializeAlta('30-71234567-1', alta);
-    const parts = line.split('|');
-
-    expect(parts[0]).toBe('01'); // record type
-    expect(parts[1]).toBe('30712345671'); // CUIT empleador normalized
-    expect(parts[2]).toBe('0'); // TipoOperacion.ALTA
-    expect(parts[3]).toBe('20123456786'); // CUIL normalized
-    expect(parts[4]).toBe('15012024'); // fecha inicio
-    expect(parts[5]).toBe('8'); // modalidad
-    expect(parts[6]).toBe('100000'); // obra social
-    expect(parts[7]).toBe('620100'); // actividad economica
-    expect(parts[8]).toBe('N'); // trabajadorAgropecuario = false
-    expect(parts[9]).toBe(''); // fechaFin empty
-    expect(parts[10]).toBe('Av. Corrientes'); // calle
-    expect(parts[11]).toBe('1234'); // numero
-    expect(parts[12]).toBe('3'); // piso
-    expect(parts[13]).toBe('A'); // depto
-    expect(parts[14]).toBe('CABA'); // localidad
-    expect(parts[15]).toBe('1043'); // CP
-    expect(parts[16]).toBe('0'); // provincia
-    expect(parts[17]).toBe('1155551234'); // telefono
-    // Trailing pipe
-    expect(line.endsWith('|')).toBe(true);
+describe('golden: registro 01', () => {
+  it('AT', () => {
+    const linea = serializarRegistro(ALTA);
+    const esperado =
+      '01' + // 1-2 tipo
+      'AT' + // 3-4 movimiento
+      '20123456786' + // 5-15 CUIL
+      'S' + // 16 agropecuario
+      '008' + // 17-19 modalidad
+      '2026/11/02' + // 20-29 inicio
+      ' '.repeat(10) + // 30-39 fin
+      '126205' + // 40-45 obra social
+      '01' + // 46-47 situación revista
+      ' '.repeat(10) + // 48-57 telegrama
+      '000000000150000' + // 58-72 retribución (2 decimales implícitos)
+      '3' + // 73 modalidad liquidación
+      '00001' + // 74-78 sucursal
+      '620100' + // 79-84 actividad
+      '2512' + // 85-88 puesto
+      '00' + // 89-90 rectificación
+      '130/75    ' + // 91-100 CCT
+      '000123' + // 101-106 categoría
+      '000' + // 107-109 tipo servicio
+      ' '.repeat(10) + // 110-119 fecha suspensión
+      '0000000000' + // 120-129 formulario agropecuario
+      '0'; // 130 marca COVID/CCG
+    expect(linea).toHaveLength(130);
+    expect(linea).toBe(esperado);
+    expect(campo(linea, 'cuil')).toBe('20123456786');
+    expect(campo(linea, 'fechaInicio')).toBe('2026/11/02');
+    expect(campo(linea, 'cct')).toBe('130/75    ');
   });
 
-  it('includes fechaFin when provided', () => {
-    const alta: AltaEmpleado = {
-      cuil: '20123456786',
-      fechaInicio: new Date(2024, 0, 15),
-      modalidadContratacion: 22,
-      obraSocial: '100000',
-      domicilioExplotacion: {
-        calle: 'Calle',
-        numero: '1',
-        localidad: 'Loc',
-        codigoPostal: '1000',
-        provincia: 1,
-      },
-      actividadEconomica: '620100',
-      fechaFin: new Date(2024, 11, 31),
-    };
-
-    const line = serializeAlta('30712345671', alta);
-    const parts = line.split('|');
-
-    expect(parts[9]).toBe('31122024'); // fechaFin
-  });
-
-  it('escapes pipe characters in text fields', () => {
-    const alta: AltaEmpleado = {
-      cuil: '20123456786',
-      fechaInicio: new Date(2024, 0, 15),
-      modalidadContratacion: 8,
-      obraSocial: '100000',
-      domicilioExplotacion: {
-        calle: 'Calle|Con|Pipes',
-        numero: '1',
-        localidad: 'Loc',
-        codigoPostal: '1000',
-        provincia: 0,
-      },
-      actividadEconomica: '620100',
-    };
-
-    const line = serializeAlta('30712345671', alta);
-
-    // Pipes in text fields should be escaped
-    expect(line).toContain('Calle\\|Con\\|Pipes');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// serializeBaja
-// ---------------------------------------------------------------------------
-
-describe('serializeBaja', () => {
-  it('produces correct pipe-delimited baja output', () => {
-    const baja: BajaEmpleado = {
-      cuil: '20-12345678-6',
-      fechaBaja: new Date(2024, 5, 15),
-      motivoBaja: 21,
-    };
-
-    const line = serializeBaja('30-71234567-1', baja);
-    const parts = line.split('|');
-
-    expect(parts[0]).toBe('01'); // record type
-    expect(parts[1]).toBe('30712345671'); // CUIT empleador
-    expect(parts[2]).toBe('1'); // TipoOperacion.BAJA
-    expect(parts[3]).toBe('20123456786'); // CUIL
-    expect(parts[4]).toBe('15062024'); // fecha baja
-    expect(parts[5]).toBe('21'); // motivo baja (RENUNCIA)
-    expect(line.endsWith('|')).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// serializeModificacion
-// ---------------------------------------------------------------------------
-
-describe('serializeModificacion', () => {
-  it('produces correct output with partial fields', () => {
-    const line = serializeModificacion('30712345671', {
-      cuil: '20123456786',
-      fechaInicio: new Date(2024, 0, 15),
-      obraSocial: '200000',
+  it('BT', () => {
+    const linea = serializarRegistro({
+      movimiento: 'BT',
+      cuil: '27111111117',
+      fechaInicio: '2025-03-01',
+      fechaFin: '2026-10-31',
+      fechaTelegramaRenuncia: '20261015',
     });
-    const parts = line.split('|');
+    expect(linea).toHaveLength(130);
+    expect(linea).toBe(
+      '01BT27111111117' + ' ' + '000' + '2025/03/01' + '2026/10/31' + '000000' + '00' + '2026/10/15' +
+      '0'.repeat(15) + '0' + '00000' + '000000' + '    ' + '00' + ' '.repeat(10) + '000000' + '000' +
+      ' '.repeat(10) + '0'.repeat(10) + '0',
+    );
+  });
 
-    expect(parts[0]).toBe('01');
-    expect(parts[2]).toBe('2'); // TipoOperacion.MODIFICACION
-    expect(parts[3]).toBe('20123456786');
-    expect(parts[4]).toBe('15012024');
-    expect(parts[5]).toBe(''); // modalidad empty
-    expect(parts[6]).toBe('200000'); // obra social
-    expect(parts[7]).toBe(''); // actividad empty
-    expect(parts[8]).toBe(''); // trabajadorAgropecuario undefined -> ''
+  it('MR con rectificación y fecha de suspensión', () => {
+    const linea = serializarRegistro({
+      movimiento: 'MR',
+      cuil: 20345678906,
+      retribucion: 2345678.9,
+      rectificacion: 2,
+      fechaSuspensionServiciosTemporarios: '2026/11/05',
+      numeroFormularioAgropecuario: '42',
+      marcaCovidTipoContratoCCG: 3,
+    });
+    expect(linea).toHaveLength(130);
+    expect(campo(linea, 'tipoRegistro')).toBe('01');
+    expect(campo(linea, 'movimiento')).toBe('MR');
+    expect(campo(linea, 'cuil')).toBe('20345678906');
+    expect(campo(linea, 'retribucion')).toBe('000000234567890');
+    expect(campo(linea, 'rectificacion')).toBe('02');
+    expect(campo(linea, 'fechaSuspensionServiciosTemporarios')).toBe('2026/11/05');
+    expect(campo(linea, 'numeroFormularioAgropecuario')).toBe('0000000042');
+    expect(campo(linea, 'marcaCovidTipoContratoCCG')).toBe('3');
+    expect(campo(linea, 'fechaInicio')).toBe(' '.repeat(10));
+  });
+
+  it('numericoVacio: espacios', () => {
+    const linea = serializarRegistro({ movimiento: 'MR', cuil: CUIL }, { numericoVacio: 'espacios' });
+    expect(campo(linea, 'obraSocial')).toBe('      ');
+    expect(campo(linea, 'retribucion')).toBe(' '.repeat(15));
+    // Rectificación y marca 130 tienen default 0 según el manual.
+    expect(campo(linea, 'rectificacion')).toBe('00');
+    expect(campo(linea, 'marcaCovidTipoContratoCCG')).toBe('0');
   });
 });
 
-// ---------------------------------------------------------------------------
-// serializeDatosComplementarios
-// ---------------------------------------------------------------------------
+describe('fechas AAAA/MM/DD', () => {
+  afterEach(() => vi.unstubAllEnvs());
 
-describe('serializeDatosComplementarios', () => {
-  it('produces correct output', () => {
-    const line = serializeDatosComplementarios('30712345671', {
-      cuil: '20123456786',
-      fechaInicio: new Date(2024, 0, 15),
-      situacionRevista: 1,
-      remuneracion: 1500000.50,
+  for (const tz of ['UTC', 'America/Argentina/Buenos_Aires', 'Pacific/Kiritimati', 'America/Los_Angeles']) {
+    it(`independientes de la zona horaria del proceso (TZ=${tz})`, () => {
+      vi.stubEnv('TZ', tz);
+      expect(formatFechaSR('2026-11-02')).toBe('2026/11/02');
+      expect(formatFechaSR('20261102')).toBe('2026/11/02');
+      expect(formatFechaSR('2026/11/02')).toBe('2026/11/02');
+      // 01:00 UTC del 2 = 22:00 del 1 en Argentina
+      expect(formatFechaSR(new Date('2026-11-02T01:00:00Z'))).toBe('2026/11/01');
+      expect(formatFechaSR(new Date('2026-11-02T15:00:00Z'))).toBe('2026/11/02');
     });
-    const parts = line.split('|');
+  }
 
-    expect(parts[0]).toBe('02');
-    expect(parts[1]).toBe('30712345671');
-    expect(parts[2]).toBe('20123456786');
-    expect(parts[3]).toBe('15012024');
-    expect(parts[4]).toBe('1'); // situacionRevista
-    expect(parts[11]).toBe('1500000.50'); // remuneracion formatted
+  it('rechaza fechas inexistentes, formatos mezclados y tipos incorrectos', () => {
+    expect(() => formatFechaSR('2026-02-30')).toThrow(ArcaValidationError);
+    expect(() => formatFechaSR('2026-13-01')).toThrow(ArcaValidationError);
+    expect(() => formatFechaSR('2026-11/02')).toThrow(ArcaValidationError);
+    expect(() => formatFechaSR('02/11/2026')).toThrow(ArcaValidationError);
+    expect(() => formatFechaSR(new Date('nope'))).toThrow(ArcaValidationError);
+    expect(() => formatFechaSR(20261102 as unknown as string)).toThrow(ArcaValidationError);
+  });
+
+  it('una fecha inválida en un registro es ArcaSerializationError con cause', () => {
+    try {
+      serializarRegistro({ movimiento: 'AT', cuil: CUIL, fechaInicio: '2026-02-30' });
+      expect.unreachable();
+    } catch (e) {
+      expect(e).toBeInstanceOf(ArcaSerializationError);
+      const err = e as ArcaSerializationError;
+      expect(err.field).toBe('fechaInicio');
+      expect(err.desde).toBe(20);
+      expect(err.hasta).toBe(29);
+      expect(err.cause).toBeInstanceOf(ArcaValidationError);
+    }
   });
 });
 
-// ---------------------------------------------------------------------------
-// serializeCBU
-// ---------------------------------------------------------------------------
+describe('padding y overflow por campo (sin truncado silencioso)', () => {
+  const base: RegistroRelacionLaboral = { movimiento: 'MR', cuil: CUIL };
+  const serial = (extra: Partial<RegistroRelacionLaboral>) => serializarRegistro({ ...base, ...extra });
 
-describe('serializeCBU', () => {
-  it('produces correct output', () => {
-    const line = serializeCBU('30712345671', {
-      cuil: '20123456786',
-      fechaInicio: new Date(2024, 0, 15),
-      cbu: '0140006900000001234561',
-      tipoCuenta: 1,
-    });
-    const parts = line.split('|');
+  it('obra social N6', () => {
+    expect(campo(serial({ obraSocial: 208 }), 'obraSocial')).toBe('000208');
+    expect(campo(serial({ obraSocial: '000208' }), 'obraSocial')).toBe('000208');
+    expect(campo(serial({ obraSocial: 999999 }), 'obraSocial')).toBe('999999');
+    expect(() => serial({ obraSocial: '1262050' })).toThrow(/admite 6/);
+    expect(() => serial({ obraSocial: 1000000 })).toThrow(ArcaSerializationError);
+  });
 
-    expect(parts[0]).toBe('03');
-    expect(parts[1]).toBe('30712345671');
-    expect(parts[2]).toBe('20123456786');
-    expect(parts[3]).toBe('15012024');
-    expect(parts[4]).toBe('0140006900000001234561');
-    expect(parts[5]).toBe('1');
+  it('puesto A4', () => {
+    expect(campo(serial({ puesto: '12' }), 'puesto')).toBe('12  ');
+    expect(campo(serial({ puesto: '9999' }), 'puesto')).toBe('9999');
+    expect(() => serial({ puesto: '12345' })).toThrow(/admite 4/);
+  });
+
+  it('CCT A10', () => {
+    expect(campo(serial({ cct: '9999/99' }), 'cct')).toBe('9999/99   ');
+    expect(campo(serial({ cct: '1234567890' }), 'cct')).toBe('1234567890');
+    expect(() => serial({ cct: '12345678901' })).toThrow(/admite 10/);
+  });
+
+  it('retribución N15 con 2 decimales implícitos', () => {
+    expect(campo(serial({ retribucion: 0 }), 'retribucion')).toBe('0'.repeat(15));
+    expect(campo(serial({ retribucion: 0.01 }), 'retribucion')).toBe('000000000000001');
+    expect(campo(serial({ retribucion: 1234.56 }), 'retribucion')).toBe('000000000123456');
+    expect(campo(serial({ retribucion: 9999999999999.99 }), 'retribucion')).toBe('999999999999999');
+    expect(() => serial({ retribucion: 10000000000000 })).toThrow(/admite 15/);
+    expect(() => serial({ retribucion: 1.234 })).toThrow(/2 decimales/);
+  });
+
+  it('CUIL debe tener 11 dígitos', () => {
+    expect(() => serializarRegistro({ movimiento: 'AT', cuil: '2012345678' })).toThrow(/11 dígitos/);
+    expect(() => serializarRegistro({ movimiento: 'AT', cuil: '201234567861' })).toThrow(/11 dígitos/);
+    expect(() => serializarRegistro({ movimiento: 'AT' } as RegistroRelacionLaboral)).toThrow(/obligatorio/);
+  });
+
+  it('agropecuario A1', () => {
+    expect(campo(serial({}), 'trabajadorAgropecuario')).toBe(' ');
+    expect(() => serial({ trabajadorAgropecuario: 'SI' })).toThrow(/admite 1/);
   });
 });
 
-// ---------------------------------------------------------------------------
-// serializeRelacionFamiliar
-// ---------------------------------------------------------------------------
+describe('códigos inválidos y tipos incorrectos', () => {
+  const base: RegistroRelacionLaboral = { movimiento: 'MR', cuil: CUIL };
+  const bad = (extra: Record<string, unknown>) => () => serializarRegistro({ ...base, ...extra } as RegistroRelacionLaboral);
 
-describe('serializeRelacionFamiliar', () => {
-  it('produces correct output', () => {
-    const line = serializeRelacionFamiliar('30712345671', {
-      cuil: '20123456786',
-      fechaInicio: new Date(2024, 0, 15),
-      tipoRelacion: 2,
-      nombreFamiliar: 'PEDRO',
-      apellidoFamiliar: 'PEREZ',
-      fechaNacimiento: new Date(2010, 5, 20),
-      discapacitado: false,
-      escolaridad: 2,
-    });
-    const parts = line.split('|');
+  it.each([
+    ['NaN', { modalidadContrato: NaN }],
+    ['negativo', { modalidadContrato: -1 }],
+    ['decimal', { situacionRevista: 1.5 }],
+    ['Infinity', { sucursal: Infinity }],
+    ['string no numérico', { actividad: '62A100' }],
+    ['string con espacios', { obraSocial: ' 12' }],
+    ['boolean', { tipoServicio: true }],
+    ['objeto', { categoriaProfesional: {} }],
+    ['retribución NaN', { retribucion: NaN }],
+    ['retribución Infinity', { retribucion: Infinity }],
+    ['retribución negativa', { retribucion: -1 }],
+    ['retribución string', { retribucion: '100' }],
+    ['alfanumérico number', { puesto: 1234 }],
+    ['fecha number', { fechaFin: 20261102 }],
+    ['marca 130 de 2 dígitos', { marcaCovidTipoContratoCCG: 10 }],
+    ['movimiento inválido', { movimiento: 'XX' }],
+    ['movimiento en minúsculas', { movimiento: 'at' }],
+  ])('%s', (_n, extra) => {
+    expect(bad(extra)).toThrow(ArcaSerializationError);
+  });
 
-    expect(parts[0]).toBe('04');
-    expect(parts[1]).toBe('30712345671');
-    expect(parts[2]).toBe('20123456786');
-    expect(parts[3]).toBe('15012024');
-    expect(parts[4]).toBe('2'); // tipoRelacion
-    expect(parts[5]).toBe(''); // cuilFamiliar empty
-    expect(parts[6]).toBe(''); // dniFamiliar empty
-    expect(parts[7]).toBe('PEDRO');
-    expect(parts[8]).toBe('PEREZ');
-    expect(parts[9]).toBe('20062010'); // fechaNacimiento
-    expect(parts[10]).toBe('N'); // discapacitado false
-    expect(parts[11]).toBe('2'); // escolaridad
+  it('registro que no es objeto: error claro', () => {
+    expect(() => serializarRegistro(undefined as unknown as RegistroRelacionLaboral)).toThrow(/debe ser un objeto/);
+    expect(() => serializarRegistro(null as unknown as RegistroRelacionLaboral)).toThrow(ArcaSerializationError);
   });
 });
 
-// ---------------------------------------------------------------------------
-// serializeDomicilio
-// ---------------------------------------------------------------------------
+describe('caracteres y encoding', () => {
+  const base: RegistroRelacionLaboral = { movimiento: 'MR', cuil: CUIL };
 
-describe('serializeDomicilio', () => {
-  it('produces correct output', () => {
-    const line = serializeDomicilio('30712345671', {
-      cuil: '20123456786',
-      calle: 'Av. Rivadavia',
-      numero: '5000',
-      piso: '10',
-      depto: 'B',
-      localidad: 'CABA',
-      codigoPostal: '1424',
-      provincia: 0,
-      telefono: '1144445555',
-      actividadEconomica: '620100',
-    });
-    const parts = line.split('|');
+  it('ñ y acentos son válidos en ISO-8859-1 (default) y ocupan 1 byte', () => {
+    const linea = serializarRegistro({ ...base, cct: 'ÑANDÚ' });
+    expect(campo(linea, 'cct')).toBe('ÑANDÚ     ');
+    const buf = codificarArchivo(linea);
+    expect(buf).toHaveLength(130);
+    expect(buf[90]).toBe(0xd1); // Ñ en latin1
+  });
 
-    expect(parts[0]).toBe('05');
-    expect(parts[1]).toBe('30712345671');
-    expect(parts[2]).toBe('20123456786');
-    expect(parts[3]).toBe('Av. Rivadavia');
-    expect(parts[4]).toBe('5000');
-    expect(parts[5]).toBe('10');
-    expect(parts[6]).toBe('B');
-    expect(parts[7]).toBe('CABA');
-    expect(parts[8]).toBe('1424');
-    expect(parts[9]).toBe('0');
-    expect(parts[10]).toBe('1144445555');
-    expect(parts[11]).toBe('620100');
+  it('forma descompuesta (NFD) se normaliza a NFC antes de medir', () => {
+    const nfd = 'Ñ'; // N + tilde combinante
+    expect(campo(serializarRegistro({ ...base, puesto: nfd }), 'puesto')).toBe('Ñ   ');
+  });
+
+  it('caracter fuera de ISO-8859-1: error por defecto', () => {
+    expect(() => serializarRegistro({ ...base, cct: 'A€' })).toThrow(/no es representable/);
+    expect(() => serializarRegistro({ ...base, cct: '😀' })).toThrow(ArcaSerializationError);
+  });
+
+  it('ASCII: error o transliteración', () => {
+    expect(() => serializarRegistro({ ...base, cct: 'ÑANDÚ' }, { encoding: 'ascii' })).toThrow(/ASCII/);
+    const linea = serializarRegistro({ ...base, cct: 'ÑANDÚ' }, { encoding: 'ascii', noRepresentables: 'transliterar' });
+    expect(campo(linea, 'cct')).toBe('NANDU     ');
+    expect(() =>
+      serializarRegistro({ ...base, cct: '😀' }, { encoding: 'ascii', noRepresentables: 'transliterar' }),
+    ).toThrow(ArcaSerializationError);
+  });
+
+  it('caracteres de control prohibidos (romperían el ancho fijo)', () => {
+    expect(() => serializarRegistro({ ...base, cct: 'A\r\nB' })).toThrow(/control/);
+    expect(() => serializarRegistro({ ...base, puesto: '\t' })).toThrow(/control/);
+  });
+
+  it('codificarArchivo valida la codificación', () => {
+    expect(() => codificarArchivo('€')).toThrow(ArcaSerializationError);
+    expect(() => codificarArchivo('ñ', 'ascii')).toThrow(ArcaSerializationError);
+    expect([...codificarArchivo('ñ')]).toEqual([0xf1]);
+  });
+});
+
+describe('archivo', () => {
+  const r1: RegistroRelacionLaboral = { movimiento: 'MR', cuil: CUIL };
+  const r2: RegistroRelacionLaboral = { movimiento: 'NB', cuil: '27111111117' };
+
+  it('CRLF por defecto, con fin de línea final', () => {
+    const txt = serializarArchivo([r1, r2]);
+    expect(txt).toHaveLength(2 * 132);
+    expect(txt.slice(130, 132)).toBe('\r\n');
+    expect(txt.endsWith('\r\n')).toBe(true);
+    expect(txt.split('\r\n')).toEqual([expect.any(String), expect.any(String), '']);
+  });
+
+  it('eol LF y sin fin de línea final', () => {
+    const txt = serializarArchivo([r1, r2], { eol: '\n', eolFinal: false });
+    expect(txt).toHaveLength(130 + 1 + 130);
+    expect(txt).not.toContain('\r');
+  });
+
+  it('opciones inválidas', () => {
+    expect(() => serializarArchivo([r1], { eol: '\r' as '\n' })).toThrow(TypeError);
+    expect(() => serializarArchivo([r1], { encoding: 'utf8' as 'latin1' })).toThrow(TypeError);
+  });
+
+  it('error en un registro: indica el índice y conserva cause', () => {
+    try {
+      serializarArchivo([r1, { ...r2, obraSocial: '1234567' }]);
+      expect.unreachable();
+    } catch (e) {
+      const err = e as ArcaSerializationError;
+      expect(err).toBeInstanceOf(ArcaSerializationError);
+      expect(err.indice).toBe(1);
+      expect(err.field).toBe('obraSocial');
+      expect(err.message).toMatch(/^Registro 1:/);
+      expect(err.cause).toBeInstanceOf(ArcaSerializationError);
+    }
+  });
+
+  it('jerarquía de errores', () => {
+    const err = new ArcaSerializationError('x', { cause: 'c' });
+    expect(err).toBeInstanceOf(ArcaEmpleadosError);
+    expect(err).toBeInstanceOf(ArcaError);
+    expect(err.code).toBe('ARCA_SERIALIZATION_ERROR');
+    expect(err.cause).toBe('c');
+    expect(new ArcaEmpleadosError('y', { cause: 1 }).cause).toBe(1);
   });
 });

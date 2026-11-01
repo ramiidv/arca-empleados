@@ -1,254 +1,147 @@
-// ---------------------------------------------------------------------------
-// Configuration
-// ---------------------------------------------------------------------------
+import type { CodigoMovimiento } from './constants.js';
 
-/** Configuration for the ArcaEmpleados builder. */
+/**
+ * Fecha de entrada. Un `Date` se convierte a la fecha calendario de Argentina
+ * (`America/Argentina/Buenos_Aires`); un string se toma literal y puede ser
+ * `AAAA-MM-DD`, `AAAAMMDD` o `AAAA/MM/DD` (debe ser una fecha existente).
+ */
+export type FechaInput = Date | string;
+
+/** Código numérico: entero no negativo o string de dígitos (conserva ceros a la izquierda). */
+export type CodigoNumerico = number | string;
+
+/**
+ * Datos de una relación laboral, campo por campo según el "Formato de registro"
+ * del manual de Simplificación Registral (pág. 24). Las posiciones están entre
+ * corchetes. Todos los campos salvo `cuil` son opcionales a nivel de formato; qué
+ * campos exige cada movimiento lo valida {@link validateRegistro} (modo `strict`)
+ * y, en última instancia, el servicio de ARCA al importar el archivo.
+ */
+export interface DatosRelacionLaboral {
+  /** [5-15] CUIL del trabajador (11 dígitos, con o sin guiones). */
+  cuil: string | number;
+  /**
+   * [16] Marca de trabajador agropecuario (alfanumérico, 1). El manual no publica
+   * el valor de la marca: se escribe tal cual (vacío = espacio).
+   */
+  trabajadorAgropecuario?: string;
+  /** [17-19] Código de modalidad de contrato (numérico, 3). */
+  modalidadContrato?: CodigoNumerico;
+  /** [20-29] Fecha de inicio de la relación laboral (AAAA/MM/DD). */
+  fechaInicio?: FechaInput;
+  /** [30-39] Fecha de fin de la relación laboral (AAAA/MM/DD). */
+  fechaFin?: FechaInput;
+  /** [40-45] Código de obra social (RNOS, numérico, 6). */
+  obraSocial?: CodigoNumerico;
+  /** [46-47] Código de situación de revista (numérico, 2). */
+  situacionRevista?: CodigoNumerico;
+  /** [48-57] Fecha de recepción del telegrama de renuncia (AAAA/MM/DD). */
+  fechaTelegramaRenuncia?: FechaInput;
+  /**
+   * [58-72] Retribución pactada en pesos (numérico, 15). Se escribe con 2 decimales
+   * implícitos (ver README). Debe ser finita, ≥ 0 y tener como máximo 2 decimales.
+   */
+  retribucion?: number;
+  /** [73] Código de modalidad de liquidación (numérico, 1). */
+  modalidadLiquidacion?: CodigoNumerico;
+  /** [74-78] Sucursal - domicilio de desempeño (numérico, 5). */
+  sucursal?: CodigoNumerico;
+  /** [79-84] Actividad en el domicilio de desempeño (numérico, 6). */
+  actividad?: CodigoNumerico;
+  /** [85-88] Puesto desempeñado (alfanumérico, 4). */
+  puesto?: string;
+  /** [89-90] Rectificación (numérico, 2): `0` a `5` según el manual. */
+  rectificacion?: CodigoNumerico;
+  /** [91-100] Código de convenio colectivo de trabajo (alfanumérico, 10), ej. `"9999/99"`. */
+  cct?: string;
+  /** [101-106] Categoría profesional (numérico, 6). */
+  categoriaProfesional?: CodigoNumerico;
+  /** [107-109] Tipo de servicio (numérico, 3). */
+  tipoServicio?: CodigoNumerico;
+  /** [110-119] Fecha de suspensión de servicios temporarios (AAAA/MM/DD). */
+  fechaSuspensionServiciosTemporarios?: FechaInput;
+  /** [120-129] Número de formulario agropecuario (numérico, 10). */
+  numeroFormularioAgropecuario?: CodigoNumerico;
+  /**
+   * [130] Marca de trabajador licenciado por COVID / tipo de contrato CCG
+   * (numérico, 1, `0` a `9`). Default `0`, como indica el manual.
+   */
+  marcaCovidTipoContratoCCG?: CodigoNumerico;
+}
+
+/** Un registro `01` completo: los datos de la relación laboral más el código de movimiento [3-4]. */
+export interface RegistroRelacionLaboral extends DatosRelacionLaboral {
+  /** [3-4] Código de movimiento: `AT`, `BT`, `MR`, `NA` o `NB`. */
+  movimiento: CodigoMovimiento;
+}
+
+/** Datos para un alta (`AT`). */
+export type AltaRelacionLaboral = DatosRelacionLaboral;
+/** Datos para una baja (`BT`). */
+export type BajaRelacionLaboral = DatosRelacionLaboral;
+/** Datos para una modificación (`MR`). */
+export type ModificacionRelacionLaboral = DatosRelacionLaboral;
+
+/** Codificación del archivo. */
+export type EncodingArchivo = 'latin1' | 'ascii';
+
+/** Opciones de serialización. Lo que el manual no define se puede ajustar acá (ver README). */
+export interface OpcionesSerializacion {
+  /** Fin de línea. Default `'\r\n'` (CRLF). */
+  eol?: '\r\n' | '\n';
+  /** Si el archivo termina con un fin de línea después del último registro. Default `true`. */
+  eolFinal?: boolean;
+  /**
+   * Codificación del archivo. Default `'latin1'` (ISO-8859-1). Define qué caracteres
+   * son representables en los campos alfanuméricos.
+   */
+  encoding?: EncodingArchivo;
+  /**
+   * Qué hacer con un caracter no representable en `encoding`:
+   * `'error'` (default) lanza `ArcaSerializationError`; `'transliterar'` quita
+   * diacríticos (NFD, ej. `ñ`→`n` en ASCII) y, si aún no es representable, lanza.
+   */
+  noRepresentables?: 'error' | 'transliterar';
+  /**
+   * Cómo se escribe un campo numérico no informado: `'ceros'` (default) o `'espacios'`.
+   * No aplica a `rectificacion` ni a la marca de la posición 130, que tienen
+   * default `0` según el manual.
+   */
+  numericoVacio?: 'ceros' | 'espacios';
+}
+
+/** Configuración del builder. */
 export interface ArcaEmpleadosConfig {
-  /** CUIT del empleador (11 digitos, con o sin guiones). */
-  cuitEmpleador: string;
-  /** Razon social del empleador (opcional, se incluye en el header del archivo). */
-  razonSocial?: string;
-  /** Si es true (default), valida todos los campos al agregar registros. */
+  /**
+   * `true` (default): al agregar cada registro se valida el formato y las reglas de
+   * negocio (CUIL con dígito verificador, campos obligatorios por movimiento, rangos
+   * de fechas). `false`: solo se valida el formato (que el registro se pueda escribir
+   * en las 130 posiciones); los errores siguen siendo explícitos.
+   */
   strict?: boolean;
+  /** Opciones de serialización (fin de línea, codificación, etc.). */
+  serializacion?: OpcionesSerializacion;
 }
 
-// ---------------------------------------------------------------------------
-// Record Type 5 - Domicilio de Explotacion
-// ---------------------------------------------------------------------------
-
-/** Domicilio de explotacion (lugar de trabajo). */
-export interface DomicilioExplotacion {
-  calle: string;
-  numero: string;
-  piso?: string;
-  depto?: string;
-  localidad: string;
-  codigoPostal: string;
-  /** Codigo de provincia (0-23). */
-  provincia: number;
-  telefono?: string;
-  actividadEconomica?: string;
-}
-
-// ---------------------------------------------------------------------------
-// Record Type 1 - Relacion Laboral
-// ---------------------------------------------------------------------------
-
-/** Datos para el alta de un empleado (Tipo de Operacion 0). */
-export interface AltaEmpleado {
-  /** CUIL del trabajador (11 digitos, con o sin guiones). */
-  cuil: string;
-  /** Fecha de inicio de la relacion laboral. */
-  fechaInicio: Date;
-  /** Codigo de modalidad de contratacion (tabla T03). */
-  modalidadContratacion: number;
-  /** Codigo de obra social. */
-  obraSocial: string;
-  /** Domicilio de explotacion donde se desempena el trabajador. */
-  domicilioExplotacion: DomicilioExplotacion;
-  /** Codigo de actividad economica. */
-  actividadEconomica: string;
-  /** Marca de trabajador agropecuario (default: false). */
-  trabajadorAgropecuario?: boolean;
-  /** Fecha de fin (requerida para contratos a plazo fijo, eventuales, aprendizaje, pasantia). */
-  fechaFin?: Date;
-}
-
-/** Datos para la baja de un empleado (Tipo de Operacion 1). */
-export interface BajaEmpleado {
-  /** CUIL del trabajador. */
-  cuil: string;
-  /** Fecha de baja de la relacion laboral. */
-  fechaBaja: Date;
-  /** Codigo de motivo de baja. */
-  motivoBaja: number;
-}
-
-/** Datos para la modificacion de un empleado (Tipo de Operacion 2). */
-export interface ModificacionEmpleado {
-  /** CUIL del trabajador. */
-  cuil: string;
-  /** Fecha de inicio de la relacion laboral (identifica la relacion a modificar). */
-  fechaInicio: Date;
-  modalidadContratacion?: number;
-  obraSocial?: string;
-  domicilioExplotacion?: DomicilioExplotacion;
-  actividadEconomica?: string;
-  trabajadorAgropecuario?: boolean;
-  fechaFin?: Date;
-}
-
-// ---------------------------------------------------------------------------
-// Record Type 2 - Datos Complementarios del Trabajador
-// ---------------------------------------------------------------------------
-
-/** Datos complementarios del trabajador. */
-export interface DatosComplementarios {
-  /** CUIL del trabajador. */
-  cuil: string;
-  /** Fecha de inicio de la relacion laboral. */
-  fechaInicio: Date;
-  /** Situacion de revista del trabajador. */
-  situacionRevista: number;
-  nivelEducacion?: number;
-  /** Codigo de puesto desempenado. */
-  puestoDesempenado?: string;
-  /** Codigo de convenio colectivo de trabajo. */
-  convenioColectivo?: string;
-  tipoServicio?: number;
-  modalidadLiquidacion?: number;
-  estadoCivil?: number;
-  /** Remuneracion pactada (en pesos). */
-  remuneracion?: number;
-  cantidadHorasTrabajadas?: number;
-  /** Porcentaje de aporte adicional de seguridad social. */
-  porcentajeAporteAdicionalSS?: number;
-  /** Contribucion por tareas diferenciales. */
-  contribucionTareasDiferenciales?: number;
-  /** Codigo de siniestrado. */
-  codigoSiniestrado?: number;
-  /** Marca de preaviso. */
-  marcaPreaviso?: boolean;
-  /** Fecha de preaviso. */
-  fechaPreaviso?: Date;
-  /** Concepto de liquidacion. */
-  conceptoLiquidacion?: number;
-}
-
-// ---------------------------------------------------------------------------
-// Record Type 3 - CBU
-// ---------------------------------------------------------------------------
-
-/** Datos bancarios (CBU) del trabajador. */
-export interface DatosCBU {
-  /** CUIL del trabajador. */
-  cuil: string;
-  /** Fecha de inicio de la relacion laboral. */
-  fechaInicio: Date;
-  /** CBU (22 digitos). */
-  cbu: string;
-  /** Tipo de cuenta bancaria. */
-  tipoCuenta?: number;
-}
-
-// ---------------------------------------------------------------------------
-// Record Type 4 - Relacion Familiar
-// ---------------------------------------------------------------------------
-
-/** Datos de un familiar a cargo del trabajador. */
-export interface RelacionFamiliar {
-  /** CUIL del trabajador. */
-  cuil: string;
-  /** Fecha de inicio de la relacion laboral. */
-  fechaInicio: Date;
-  /** Tipo de relacion familiar. */
-  tipoRelacion: number;
-  /** CUIL del familiar (si lo tiene). */
-  cuilFamiliar?: string;
-  /** DNI del familiar (si no tiene CUIL). */
-  dniFamiliar?: string;
-  /** Nombre del familiar. */
-  nombreFamiliar: string;
-  /** Apellido del familiar. */
-  apellidoFamiliar: string;
-  /** Fecha de nacimiento del familiar. */
-  fechaNacimiento: Date;
-  /** Indica si el familiar tiene discapacidad. */
-  discapacitado?: boolean;
-  /** Nivel de escolaridad del familiar. */
-  escolaridad?: number;
-  /** Codigo de obra social del familiar. */
-  obraSocialFamiliar?: string;
-  /** CUIL del titular de la obra social del familiar. */
-  cuilTitularObraSocial?: string;
-}
-
-// ---------------------------------------------------------------------------
-// Output types
-// ---------------------------------------------------------------------------
-
-/** Registro de tipo alta en el archivo F935. */
-export interface F935RegistroAlta {
-  tipo: 1;
-  operacion: 0;
-  data: AltaEmpleado;
-}
-
-/** Registro de tipo baja en el archivo F935. */
-export interface F935RegistroBaja {
-  tipo: 1;
-  operacion: 1;
-  data: BajaEmpleado;
-}
-
-/** Registro de tipo modificacion en el archivo F935. */
-export interface F935RegistroModificacion {
-  tipo: 1;
-  operacion: 2;
-  data: ModificacionEmpleado;
-}
-
-/** Registro de datos complementarios. */
-export interface F935RegistroDatosComplementarios {
-  tipo: 2;
-  data: DatosComplementarios;
-}
-
-/** Registro de CBU. */
-export interface F935RegistroCBU {
-  tipo: 3;
-  data: DatosCBU;
-}
-
-/** Registro de relacion familiar. */
-export interface F935RegistroRelacionFamiliar {
-  tipo: 4;
-  data: RelacionFamiliar;
-}
-
-/** Registro de domicilio de explotacion. */
-export interface F935RegistroDomicilio {
-  tipo: 5;
-  data: DomicilioExplotacion & { cuil: string };
-}
-
-/** Union discriminada de todos los tipos de registro. */
-export type F935Registro =
-  | F935RegistroAlta
-  | F935RegistroBaja
-  | F935RegistroModificacion
-  | F935RegistroDatosComplementarios
-  | F935RegistroCBU
-  | F935RegistroRelacionFamiliar
-  | F935RegistroDomicilio;
-
-/** Metadata del archivo F935 generado. */
-export interface F935Archivo {
-  cuitEmpleador: string;
-  razonSocial?: string;
-  fechaGeneracion: Date;
-  registros: F935Registro[];
-  cantidadRegistros: number;
-}
-
-/** Resumen de registros en el archivo. */
-export interface F935Resumen {
+/** Cantidad de registros por código de movimiento. */
+export interface ResumenIngresoMasivo {
   totalRegistros: number;
   altas: number;
   bajas: number;
   modificaciones: number;
-  datosComplementarios: number;
-  cbus: number;
-  familiares: number;
-  domicilios: number;
+  na: number;
+  nb: number;
 }
 
-/** Resultado de la generacion del archivo F935. */
-export interface F935Output {
-  /** Contenido del archivo (texto plano). */
+/** Resultado de {@link ArcaEmpleados.generar}. */
+export interface ArchivoIngresoMasivo {
+  /** Contenido del archivo como string (cada línea de 130 caracteres + fin de línea). */
   contenido: string;
-  /** Metadata del archivo. */
-  archivo: F935Archivo;
-  /** Resumen de registros. */
-  resumen: F935Resumen;
+  /** Las líneas sin fin de línea, en el orden en que se agregaron. */
+  lineas: string[];
+  /** Codificación con la que hay que escribir `contenido` (ver `buffer`). */
+  encoding: EncodingArchivo;
+  /** Contenido ya codificado, listo para `fs.writeFileSync`. */
+  buffer: Buffer;
+  resumen: ResumenIngresoMasivo;
 }

@@ -1,13 +1,14 @@
 {
   "name": "@ramiidv/arca-empleados",
-  "version": "0.2.0",
-  "description": "TypeScript SDK para gestion de empleados con ARCA (ex AFIP) - Generacion de archivos F935 para altas, bajas y modificaciones",
+  "version": "0.3.0",
+  "description": "TypeScript SDK para generar el archivo TXT de ingreso masivo de relaciones laborales de Simplificación Registral (ARCA, ex AFIP): altas, bajas y modificaciones",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
       "default": "./dist/index.js"
     }
   },
@@ -23,29 +24,30 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run clean && npm run build && npm test"
   },
   "keywords": [
     "arca",
     "afip",
     "empleados",
-    "f935",
     "argentina",
     "sdk",
     "typescript",
     "simplificacion-registral",
     "alta",
-    "baja"
+    "baja",
+    "relaciones-laborales",
+    "ingreso-masivo"
   ],
   "author": "ramiidv",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ramiidv/arca-empleados-sdk.git"
+    "url": "git+https://github.com/ramiidv/arca-empleados.git"
   },
   "homepage": "https://arca-sdk.dev/empleados",
   "bugs": {
-    "url": "https://github.com/ramiidv/arca-empleados-sdk/issues"
+    "url": "https://github.com/ramiidv/arca-empleados/issues"
   },
   "publishConfig": {
     "access": "public"
@@ -54,11 +56,12 @@
     "node": ">=18"
   },
   "dependencies": {
-    "@ramiidv/arca-common": "^0.2.0"
+    "@ramiidv/arca-common": "^0.4.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "typescript": "^5.7.0",
     "vitest": "^3.1.0"
-  }
+  },
+  "sideEffects": false
 }

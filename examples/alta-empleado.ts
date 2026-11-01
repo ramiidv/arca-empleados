@@ -1,79 +1,33 @@
 /**
- * Ejemplo: Alta de un empleado con datos completos.
+ * Ejemplo: alta (AT) de una relación laboral en el archivo de ingreso masivo
+ * de Simplificación Registral.
  *
- * Genera un archivo F935 con el alta, datos complementarios y CBU.
+ * Los códigos (modalidad de contrato, obra social, sucursal, actividad, puesto,
+ * convenio, categoría...) salen de "Ver tablas informativas de códigos" en el
+ * propio servicio de Simplificación Registral. Los de este ejemplo son ilustrativos.
  */
 import { writeFileSync } from 'node:fs';
-import {
-  ArcaEmpleados,
-  ModalidadContratacion,
-  SituacionRevista,
-  ModalidadLiquidacion,
-  TipoServicio,
-  EstadoCivil,
-  NivelEducacion,
-  TipoCuenta,
-  Provincia,
-} from '@ramiidv/arca-empleados-sdk';
+import { ArcaEmpleados } from '@ramiidv/arca-empleados';
 
-// 1. Crear instancia con CUIT del empleador
-const sdk = new ArcaEmpleados({
-  cuitEmpleador: '30-71234567-1',
-  razonSocial: 'Empresa Ejemplo S.A.',
-});
+const sr = new ArcaEmpleados();
 
-// 2. Agregar el alta del empleado (7 campos obligatorios segun RG 5508/2024)
-sdk.alta({
+sr.alta({
   cuil: '20-12345678-6',
-  fechaInicio: new Date(2024, 2, 1), // 1 de marzo de 2024
-  modalidadContratacion: ModalidadContratacion.TIEMPO_COMPLETO_INDETERMINADO,
-  obraSocial: '100100',
-  actividadEconomica: '620100',
-  trabajadorAgropecuario: false,
-  domicilioExplotacion: {
-    calle: 'Av. Corrientes',
-    numero: '1234',
-    piso: '5',
-    depto: 'A',
-    localidad: 'Ciudad Autonoma de Buenos Aires',
-    codigoPostal: '1043',
-    provincia: Provincia.CAPITAL_FEDERAL,
-    telefono: '011-4555-1234',
-  },
+  fechaInicio: '2026-11-02', // string AAAA-MM-DD: se toma literal, sin corrimientos de zona horaria
+  modalidadContrato: 8,
+  obraSocial: '126205',
+  sucursal: 1,
+  // Datos que, según RG 5508/2024, se pueden completar hasta la primera liquidación:
+  actividad: 620100,
+  situacionRevista: 1,
+  retribucion: 850000.5, // se escribe con 2 decimales implícitos: 000000085000050
+  modalidadLiquidacion: 3,
+  puesto: '2512',
+  cct: '9999/99', // excluido de convenio
 });
 
-// 3. Agregar datos complementarios (deben completarse antes de la primera liquidacion)
-sdk.datosComplementarios({
-  cuil: '20-12345678-6',
-  fechaInicio: new Date(2024, 2, 1),
-  situacionRevista: SituacionRevista.ACTIVO,
-  nivelEducacion: NivelEducacion.UNIVERSITARIO_COMPLETO,
-  puestoDesempenado: '0301',
-  convenioColectivo: '000',
-  tipoServicio: TipoServicio.CON_APORTE_PAMI,
-  modalidadLiquidacion: ModalidadLiquidacion.MENSUAL,
-  estadoCivil: EstadoCivil.SOLTERO,
-  remuneracion: 350000,
-});
+const { buffer, lineas, resumen } = sr.generar();
+writeFileSync('relaciones-laborales.txt', buffer); // ISO-8859-1, CRLF
 
-// 4. Agregar CBU para deposito de sueldo
-sdk.cbu({
-  cuil: '20-12345678-6',
-  fechaInicio: new Date(2024, 2, 1),
-  cbu: '0110599500000054489271',
-  tipoCuenta: TipoCuenta.CAJA_AHORRO,
-});
-
-// 5. Generar el archivo
-const output = sdk.generar();
-
-// 6. Mostrar resumen
-console.log('Resumen:', output.resumen);
-// { totalRegistros: 3, altas: 1, bajas: 0, modificaciones: 0,
-//   datosComplementarios: 1, cbus: 1, familiares: 0, domicilios: 0 }
-
-// 7. Escribir a disco
-writeFileSync('F935_alta.txt', output.contenido, 'utf-8');
-console.log('Archivo generado: F935_alta.txt');
-console.log('Contenido:');
-console.log(output.contenido);
+console.log(lineas[0]); // 130 caracteres
+console.log(resumen);

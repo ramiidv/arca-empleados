@@ -1,106 +1,46 @@
-// ---------------------------------------------------------------------------
-// Main class
-// ---------------------------------------------------------------------------
-export { ArcaEmpleados } from './f935-builder.js';
+// Builder
+export { ArcaEmpleados } from './ingreso-masivo.js';
 
-// ---------------------------------------------------------------------------
-// Errors (base from common, domain-specific local)
-// ---------------------------------------------------------------------------
-export {
-  ArcaError,
-  ArcaValidationError,
-  ArcaEmpleadosError,
-  ArcaSerializationError,
-} from './errors.js';
-export type { ValidationErrorDetail } from './errors.js';
+// Errores
+export { ArcaError, ArcaValidationError, ArcaEmpleadosError, ArcaSerializationError } from './errors.js';
+export type { ValidationErrorDetail, ArcaSerializationErrorOptions } from './errors.js';
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
+// Tipos
 export type {
+  FechaInput,
+  CodigoNumerico,
+  DatosRelacionLaboral,
+  RegistroRelacionLaboral,
+  AltaRelacionLaboral,
+  BajaRelacionLaboral,
+  ModificacionRelacionLaboral,
+  EncodingArchivo,
+  OpcionesSerializacion,
   ArcaEmpleadosConfig,
-  DomicilioExplotacion,
-  AltaEmpleado,
-  BajaEmpleado,
-  ModificacionEmpleado,
-  DatosComplementarios,
-  DatosCBU,
-  RelacionFamiliar,
-  F935RegistroAlta,
-  F935RegistroBaja,
-  F935RegistroModificacion,
-  F935RegistroDatosComplementarios,
-  F935RegistroCBU,
-  F935RegistroRelacionFamiliar,
-  F935RegistroDomicilio,
-  F935Registro,
-  F935Archivo,
-  F935Resumen,
-  F935Output,
+  ResumenIngresoMasivo,
+  ArchivoIngresoMasivo,
 } from './types.js';
 
-// ---------------------------------------------------------------------------
-// Constants / Enums
-// ---------------------------------------------------------------------------
+// Constantes (solo las publicadas en el manual de Simplificación Registral)
 export {
-  ModalidadContratacion,
-  SituacionRevista,
-  MotivoBaja,
-  NivelEducacion,
-  EstadoCivil,
-  TipoRelacionFamiliar,
-  Provincia,
-  TipoServicio,
-  ModalidadLiquidacion,
-  TipoOperacion,
-  TipoCuenta,
-  Escolaridad,
-  MODALIDAD_CONTRATACION_DESCRIPCION,
-  MOTIVO_BAJA_DESCRIPCION,
-  SITUACION_REVISTA_DESCRIPCION,
-  NIVEL_EDUCACION_DESCRIPCION,
-  ESTADO_CIVIL_DESCRIPCION,
-  TIPO_RELACION_FAMILIAR_DESCRIPCION,
-  PROVINCIA_DESCRIPCION,
-  MODALIDAD_LIQUIDACION_DESCRIPCION,
-  TIPO_CUENTA_DESCRIPCION,
-  ESCOLARIDAD_DESCRIPCION,
-  TIPO_SERVICIO_DESCRIPCION,
-  MODALIDADES_CON_FECHA_FIN,
+  LONGITUD_REGISTRO,
+  TIPO_REGISTRO,
+  CodigoMovimiento,
+  CODIGOS_MOVIMIENTO,
+  VALORES_RECTIFICACION,
+  VALORES_MARCA_COVID_CCG,
+  PREFIJOS_CUIL_PERSONA_FISICA,
 } from './constants.js';
 
-// ---------------------------------------------------------------------------
-// Validators / Utilities (shared from common + local record-level)
-// ---------------------------------------------------------------------------
-export {
-  validateCuil,
-  validateCBU,
-  normalizeCuil,
-  formatCuil,
-  validateFecha,
-  validateFechaRango,
-  validateAlta,
-  validateBaja,
-  validateModificacion,
-  validateDatosComplementarios,
-  validateCBUData,
-  validateRelacionFamiliar,
-  validateDomicilio,
-} from './validators.js';
+// Validadores
+export { validateCuilTrabajador, validateRegistro, CAMPOS_OBLIGATORIOS } from './validators.js';
 
-// ---------------------------------------------------------------------------
-// Serializer (advanced usage)
-// ---------------------------------------------------------------------------
+// Serializador (uso avanzado)
 export {
-  formatDate,
-  boolToStr,
-  serializeArchivo,
-  serializeHeader,
-  serializeAlta,
-  serializeBaja,
-  serializeModificacion,
-  serializeDatosComplementarios,
-  serializeCBU,
-  serializeRelacionFamiliar,
-  serializeDomicilio,
+  DISENO_REGISTRO,
+  formatFechaSR,
+  serializarRegistro,
+  serializarArchivo,
+  codificarArchivo,
 } from './serializer.js';
+export type { CampoDiseno, TipoCampo } from './serializer.js';

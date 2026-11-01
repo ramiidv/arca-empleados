@@ -1,361 +1,125 @@
-// Shared validators from common
-export {
-  validateCuil,
-  validateCBU,
-  normalizeCuil,
-  formatCuil,
-  validateFecha,
-  validateFechaRango,
-  collectErrors,
-  collectErrorsWithPrefix,
-} from '@ramiidv/arca-common';
-
-import {
-  ArcaValidationError,
-  collectErrors,
-  collectErrorsWithPrefix,
-  validateCuil,
-  validateFecha,
-  validateFechaRango,
-  validateCBU,
-} from '@ramiidv/arca-common';
+import { ArcaValidationError, collectErrors, validateCuit } from '@ramiidv/arca-common';
 import type { ValidationErrorDetail } from '@ramiidv/arca-common';
-import type {
-  AltaEmpleado,
-  BajaEmpleado,
-  ModificacionEmpleado,
-  DatosComplementarios,
-  DatosCBU,
-  RelacionFamiliar,
-  DomicilioExplotacion,
-} from './types.js';
-import { MODALIDADES_CON_FECHA_FIN } from './constants.js';
-
-// ---------------------------------------------------------------------------
-// Error collection helpers (local)
-// ---------------------------------------------------------------------------
+import { PREFIJOS_CUIL_PERSONA_FISICA, VALORES_MARCA_COVID_CCG, VALORES_RECTIFICACION } from './constants.js';
+import { erroresDeFormato, formatFechaSR } from './serializer.js';
+import type { FechaInput, OpcionesSerializacion, RegistroRelacionLaboral } from './types.js';
 
 /**
- * Same as collectErrors but replaces the field name entirely on collected errors.
+ * Valida un CUIL de trabajador: 11 dígitos, prefijo de persona física
+ * (20, 23, 24 o 27) y dígito verificador. Devuelve el CUIL normalizado (solo dígitos).
+ * @throws ArcaValidationError
  */
-function collectErrorsAs(fn: () => void, errors: ValidationErrorDetail[], fieldName: string): void {
+export function validateCuilTrabajador(cuil: string | number, field = 'cuil'): string {
+  let normalizado: string;
   try {
-    fn();
+    normalizado = validateCuit(cuil);
   } catch (e) {
     if (e instanceof ArcaValidationError) {
-      errors.push(...e.details.map(err => ({
-        ...err,
-        field: fieldName,
-      })));
+      throw new ArcaValidationError(
+        e.message.replace(/^CUIT/, 'CUIL'),
+        e.details.map((d) => ({ ...d, field, message: d.message.replace(/CUIT/g, 'CUIL') })),
+        field,
+        { cause: e },
+      );
+    }
+    throw e;
+  }
+  if (!PREFIJOS_CUIL_PERSONA_FISICA.includes(normalizado.slice(0, 2))) {
+    throw new ArcaValidationError(
+      `CUIL inválido: "${cuil}". El prefijo ${normalizado.slice(0, 2)} no corresponde a una persona física (20, 23, 24 o 27).`,
+      [{ field, message: `Prefijo ${normalizado.slice(0, 2)} no es de persona física`, value: cuil }],
+      field,
+    );
+  }
+  return normalizado;
+}
+
+function presente(v: unknown): boolean {
+  return v !== undefined && v !== null && v !== '';
+}
+
+function requerido(r: RegistroRelacionLaboral, campos: (keyof RegistroRelacionLaboral)[], errores: ValidationErrorDetail[]): void {
+  for (const c of campos) {
+    if (!presente(r[c])) {
+      errores.push({ field: c, message: `El campo "${c}" es obligatorio para el movimiento ${r.movimiento}`, value: r[c] });
     }
   }
 }
 
-// ---------------------------------------------------------------------------
-// Record-level validators
-// ---------------------------------------------------------------------------
-
 /**
- * Validates all fields of an AltaEmpleado record.
- * @throws ArcaValidationError if any field is invalid.
+ * Campos obligatorios por movimiento que valida el SDK en modo `strict`.
+ *
+ * - `AT`: los datos mínimos del alta según el manual (RG 5508/2024): CUIL, fecha de
+ *   inicio, modalidad de contrato, obra social y domicilio de desempeño (sucursal).
+ *   La fecha de fin es obligatoria en contratos a plazo fijo, pero el SDK no conoce la
+ *   tabla de modalidades (no es pública) y no lo puede verificar.
+ * - `BT`: CUIL y fecha de fin (fecha de baja).
+ * - `MR`, `NA`, `NB`: CUIL.
+ *
+ * El servicio de ARCA aplica sus propias validaciones al importar el archivo.
  */
-export function validateAlta(alta: AltaEmpleado): void {
-  const errors: ValidationErrorDetail[] = [];
+export const CAMPOS_OBLIGATORIOS: Readonly<Record<RegistroRelacionLaboral['movimiento'], readonly (keyof RegistroRelacionLaboral)[]>> =
+  Object.freeze({
+    AT: Object.freeze(['cuil', 'fechaInicio', 'modalidadContrato', 'obraSocial', 'sucursal'] as const),
+    BT: Object.freeze(['cuil', 'fechaFin'] as const),
+    MR: Object.freeze(['cuil'] as const),
+    NA: Object.freeze(['cuil'] as const),
+    NB: Object.freeze(['cuil'] as const),
+  });
 
-  // CUIL
-  collectErrors(() => validateCuil(alta.cuil), errors);
-
-  // Fecha de inicio
-  collectErrors(() => validateFecha(alta.fechaInicio, 'fechaInicio'), errors);
-
-  // Modalidad de contratacion
-  if (alta.modalidadContratacion == null || typeof alta.modalidadContratacion !== 'number') {
-    errors.push({
-      field: 'modalidadContratacion',
-      message: 'La modalidad de contratacion es requerida',
-      value: alta.modalidadContratacion,
-    });
+function enRango(r: RegistroRelacionLaboral, campo: 'rectificacion' | 'marcaCovidTipoContratoCCG', validos: readonly number[], errores: ValidationErrorDetail[]): void {
+  const v = r[campo];
+  if (!presente(v)) return;
+  const n = Number(v);
+  if (!validos.includes(n)) {
+    errores.push({ field: campo, message: `"${campo}" debe ser uno de ${validos.join(', ')}`, value: v });
   }
+}
 
-  // Obra social
-  if (!alta.obraSocial || typeof alta.obraSocial !== 'string' || alta.obraSocial.trim() === '') {
-    errors.push({
-      field: 'obraSocial',
-      message: 'La obra social es requerida',
-      value: alta.obraSocial,
-    });
-  }
-
-  // Actividad economica
-  if (!alta.actividadEconomica || typeof alta.actividadEconomica !== 'string' || alta.actividadEconomica.trim() === '') {
-    errors.push({
-      field: 'actividadEconomica',
-      message: 'La actividad economica es requerida',
-      value: alta.actividadEconomica,
-    });
-  }
-
-  // Domicilio de explotacion
-  collectErrorsWithPrefix(() => validateDomicilio(alta.domicilioExplotacion), errors, 'domicilioExplotacion');
-
-  // Fecha de fin requerida para ciertas modalidades
-  if (MODALIDADES_CON_FECHA_FIN.has(alta.modalidadContratacion) && !alta.fechaFin) {
-    errors.push({
-      field: 'fechaFin',
-      message: `La fecha de fin es requerida para la modalidad de contratacion ${alta.modalidadContratacion}`,
-      value: alta.fechaFin,
-    });
-  }
-
-  // Validate fecha range if both dates exist
-  if (alta.fechaFin) {
-    collectErrors(() => validateFechaRango(alta.fechaInicio, alta.fechaFin), errors);
-  }
-
-  if (errors.length > 0) {
-    throw new ArcaValidationError(
-      `Datos de alta invalidos: ${errors.map(e => e.message).join('; ')}`,
-      errors,
-    );
+function fechaComparable(f: FechaInput): string | undefined {
+  try {
+    return formatFechaSR(f);
+  } catch {
+    return undefined; // el error de formato ya lo informa erroresDeFormato
   }
 }
 
 /**
- * Validates all fields of a BajaEmpleado record.
- * @throws ArcaValidationError if any field is invalid.
+ * Valida un registro completo: formato (que se pueda escribir en las 130 posiciones)
+ * y reglas de negocio (CUIL con dígito verificador y prefijo de persona física,
+ * campos obligatorios por movimiento, rectificación 00-05, marca 0-9, fechaFin ≥ fechaInicio).
+ * Informa todos los errores juntos.
+ * @throws ArcaValidationError
  */
-export function validateBaja(baja: BajaEmpleado): void {
-  const errors: ValidationErrorDetail[] = [];
+export function validateRegistro(registro: RegistroRelacionLaboral, opciones?: OpcionesSerializacion): void {
+  const errores = erroresDeFormato(registro, opciones);
+  if (errores.length === 1 && errores[0].field === 'registro') {
+    throw new ArcaValidationError(errores[0].message, errores, 'registro');
+  }
+  const conErrorDeFormato = new Set(errores.map((e) => e.field));
 
-  collectErrors(() => validateCuil(baja.cuil), errors);
+  if (!conErrorDeFormato.has('cuil')) {
+    collectErrors(() => validateCuilTrabajador(registro.cuil), errores);
+  }
+  const obligatorios = CAMPOS_OBLIGATORIOS[registro.movimiento];
+  if (obligatorios) requerido(registro, [...obligatorios], errores);
 
-  collectErrors(() => validateFecha(baja.fechaBaja, 'fechaBaja'), errors);
+  enRango(registro, 'rectificacion', VALORES_RECTIFICACION, errores);
+  enRango(registro, 'marcaCovidTipoContratoCCG', VALORES_MARCA_COVID_CCG, errores);
 
-  if (baja.motivoBaja == null || typeof baja.motivoBaja !== 'number') {
-    errors.push({
-      field: 'motivoBaja',
-      message: 'El motivo de baja es requerido',
-      value: baja.motivoBaja,
-    });
+  if (presente(registro.fechaInicio) && presente(registro.fechaFin)) {
+    const ini = fechaComparable(registro.fechaInicio!);
+    const fin = fechaComparable(registro.fechaFin!);
+    if (ini && fin && fin < ini) {
+      errores.push({ field: 'fechaFin', message: `fechaFin (${fin}) es anterior a fechaInicio (${ini})`, value: registro.fechaFin });
+    }
   }
 
-  if (errors.length > 0) {
+  if (errores.length > 0) {
     throw new ArcaValidationError(
-      `Datos de baja invalidos: ${errors.map(e => e.message).join('; ')}`,
-      errors,
-    );
-  }
-}
-
-/**
- * Validates all fields of a ModificacionEmpleado record.
- * @throws ArcaValidationError if any field is invalid.
- */
-export function validateModificacion(mod: ModificacionEmpleado): void {
-  const errors: ValidationErrorDetail[] = [];
-
-  collectErrors(() => validateCuil(mod.cuil), errors);
-
-  collectErrors(() => validateFecha(mod.fechaInicio, 'fechaInicio'), errors);
-
-  if (mod.domicilioExplotacion) {
-    collectErrorsWithPrefix(() => validateDomicilio(mod.domicilioExplotacion!), errors, 'domicilioExplotacion');
-  }
-
-  if (mod.fechaFin) {
-    collectErrors(() => validateFechaRango(mod.fechaInicio, mod.fechaFin), errors);
-  }
-
-  if (errors.length > 0) {
-    throw new ArcaValidationError(
-      `Datos de modificacion invalidos: ${errors.map(e => e.message).join('; ')}`,
-      errors,
-    );
-  }
-}
-
-/**
- * Validates all fields of a DatosComplementarios record.
- * @throws ArcaValidationError if any field is invalid.
- */
-export function validateDatosComplementarios(datos: DatosComplementarios): void {
-  const errors: ValidationErrorDetail[] = [];
-
-  collectErrors(() => validateCuil(datos.cuil), errors);
-
-  collectErrors(() => validateFecha(datos.fechaInicio, 'fechaInicio'), errors);
-
-  if (datos.situacionRevista == null || typeof datos.situacionRevista !== 'number') {
-    errors.push({
-      field: 'situacionRevista',
-      message: 'La situacion de revista es requerida',
-      value: datos.situacionRevista,
-    });
-  }
-
-  if (datos.remuneracion !== undefined && datos.remuneracion < 0) {
-    errors.push({
-      field: 'remuneracion',
-      message: 'La remuneracion no puede ser negativa',
-      value: datos.remuneracion,
-    });
-  }
-
-  if (datos.cantidadHorasTrabajadas !== undefined && datos.cantidadHorasTrabajadas < 0) {
-    errors.push({
-      field: 'cantidadHorasTrabajadas',
-      message: 'La cantidad de horas trabajadas no puede ser negativa',
-      value: datos.cantidadHorasTrabajadas,
-    });
-  }
-
-  if (datos.fechaPreaviso) {
-    collectErrors(() => validateFecha(datos.fechaPreaviso!, 'fechaPreaviso'), errors);
-  }
-
-  if (errors.length > 0) {
-    throw new ArcaValidationError(
-      `Datos complementarios invalidos: ${errors.map(e => e.message).join('; ')}`,
-      errors,
-    );
-  }
-}
-
-/**
- * Validates all fields of a DatosCBU record.
- * @throws ArcaValidationError if any field is invalid.
- */
-export function validateCBUData(cbuData: DatosCBU): void {
-  const errors: ValidationErrorDetail[] = [];
-
-  collectErrors(() => validateCuil(cbuData.cuil), errors);
-
-  collectErrors(() => validateFecha(cbuData.fechaInicio, 'fechaInicio'), errors);
-
-  collectErrors(() => validateCBU(cbuData.cbu), errors);
-
-  if (errors.length > 0) {
-    throw new ArcaValidationError(
-      `Datos de CBU invalidos: ${errors.map(e => e.message).join('; ')}`,
-      errors,
-    );
-  }
-}
-
-/**
- * Validates all fields of a RelacionFamiliar record.
- * @throws ArcaValidationError if any field is invalid.
- */
-export function validateRelacionFamiliar(rel: RelacionFamiliar): void {
-  const errors: ValidationErrorDetail[] = [];
-
-  collectErrors(() => validateCuil(rel.cuil), errors);
-
-  collectErrors(() => validateFecha(rel.fechaInicio, 'fechaInicio'), errors);
-
-  if (rel.tipoRelacion == null || typeof rel.tipoRelacion !== 'number') {
-    errors.push({
-      field: 'tipoRelacion',
-      message: 'El tipo de relacion familiar es requerido',
-      value: rel.tipoRelacion,
-    });
-  }
-
-  if (!rel.nombreFamiliar || rel.nombreFamiliar.trim() === '') {
-    errors.push({
-      field: 'nombreFamiliar',
-      message: 'El nombre del familiar es requerido',
-      value: rel.nombreFamiliar,
-    });
-  }
-
-  if (!rel.apellidoFamiliar || rel.apellidoFamiliar.trim() === '') {
-    errors.push({
-      field: 'apellidoFamiliar',
-      message: 'El apellido del familiar es requerido',
-      value: rel.apellidoFamiliar,
-    });
-  }
-
-  collectErrors(() => validateFecha(rel.fechaNacimiento, 'fechaNacimiento'), errors);
-
-  // CUIL familiar validation (if provided)
-  if (rel.cuilFamiliar) {
-    collectErrorsAs(() => validateCuil(rel.cuilFamiliar!), errors, 'cuilFamiliar');
-  }
-
-  // CUIL titular obra social validation (if provided)
-  if (rel.cuilTitularObraSocial) {
-    collectErrorsAs(() => validateCuil(rel.cuilTitularObraSocial!), errors, 'cuilTitularObraSocial');
-  }
-
-  if (errors.length > 0) {
-    throw new ArcaValidationError(
-      `Datos de relacion familiar invalidos: ${errors.map(e => e.message).join('; ')}`,
-      errors,
-    );
-  }
-}
-
-/**
- * Validates all fields of a DomicilioExplotacion record.
- * @throws ArcaValidationError if any field is invalid.
- */
-export function validateDomicilio(dom: DomicilioExplotacion): void {
-  const errors: ValidationErrorDetail[] = [];
-
-  if (!dom) {
-    throw new ArcaValidationError(
-      'El domicilio de explotacion es requerido.',
-      [{ field: 'domicilioExplotacion', message: 'El domicilio de explotacion es requerido' }],
-      'domicilioExplotacion',
-    );
-  }
-
-  if (!dom.calle || dom.calle.trim() === '') {
-    errors.push({
-      field: 'calle',
-      message: 'La calle es requerida',
-      value: dom.calle,
-    });
-  }
-
-  if (!dom.numero || dom.numero.trim() === '') {
-    errors.push({
-      field: 'numero',
-      message: 'El numero es requerido',
-      value: dom.numero,
-    });
-  }
-
-  if (!dom.localidad || dom.localidad.trim() === '') {
-    errors.push({
-      field: 'localidad',
-      message: 'La localidad es requerida',
-      value: dom.localidad,
-    });
-  }
-
-  if (!dom.codigoPostal || dom.codigoPostal.trim() === '') {
-    errors.push({
-      field: 'codigoPostal',
-      message: 'El codigo postal es requerido',
-      value: dom.codigoPostal,
-    });
-  }
-
-  if (dom.provincia == null || typeof dom.provincia !== 'number' || dom.provincia < 0 || dom.provincia > 23) {
-    errors.push({
-      field: 'provincia',
-      message: 'La provincia debe ser un valor entre 0 y 23',
-      value: dom.provincia,
-    });
-  }
-
-  if (errors.length > 0) {
-    throw new ArcaValidationError(
-      `Domicilio de explotacion invalido: ${errors.map(e => e.message).join('; ')}`,
-      errors,
+      `Registro ${String(registro.movimiento)} inválido: ${errores.map((e) => e.message).join('; ')}`,
+      errores,
+      errores[0].field,
     );
   }
 }
